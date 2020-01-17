@@ -6,11 +6,11 @@ import (
     "encoding/base64"
     "errors"
     "fmt"
-    "github.com/google/uuid"
     "io/ioutil"
     "log"
     "net/http"
     "sort"
+    "strconv"
     "strings"
     "time"
 )
@@ -33,15 +33,18 @@ func requestToSigString(r *http.Request) (string, error) {
     for _, v := range qkeys {
         singString = singString + strings.Join(q[v], "")
     }
-    if byteBodyString, err := ioutil.ReadAll(r.Body); err != nil {
-        return "", err
-    } else {
-        r.Body = ioutil.NopCloser(bytes.NewBuffer(byteBodyString))
-        singString = singString + string(byteBodyString)
+    if r.Body != nil {
+        originalRBody := r.Body
+        defer originalRBody.Close()
+        if byteBodyString, err := ioutil.ReadAll(r.Body); err != nil {
+            return "", err
+        } else {
+            r.Body = ioutil.NopCloser(bytes.NewBuffer(byteBodyString))
+            singString = singString + string(byteBodyString)
+        }
     }
-
     //Required Headers
-    for _, headerName := range []string{"x-request-time", "x-request-nonce"} {
+    for _, headerName := range []string{"X-REQUEST-TIME"} {
         if headerValue := r.Header.Get(headerName); headerValue == "" {
             return "", errors.New("missing " + headerName)
         } else {
@@ -49,7 +52,7 @@ func requestToSigString(r *http.Request) (string, error) {
         }
     }
     //Optional Headers
-    for _, headerName := range []string{"X-API-USER-AUTH", "X-API-KEY"} {
+    for _, headerName := range []string{"X-API-USER-AUTH", "X-AUTH-PARTNER-ID"} {
         if headerValue := r.Header.Get(headerName); headerValue != "" {
             singString = singString + headerValue
         }
@@ -108,10 +111,10 @@ func main() {
         log.Fatal(err)
     }
 
-    r.Header.Add("x-request-time", time.Now().Format(time.RFC3339))
-    r.Header.Add("x-request-nonce", uuid.New().String())
-    r.Header.Add("X-API-USER-AUTH", uuid.New().String())
-    r.Header.Add("X-API-KEY", uuid.New().String())
+    r.Header.Add("Content-Type", "application/json")
+    r.Header.Add("X-REQUEST-TIME", strconv.Itoa(int(time.Now().Unix())))
+    r.Header.Add("X-AUTH-PARTNER-ID", "partner_id")
+    r.Header.Add("X-API-VERSION", "v1")
 
     if sig, err = Sign(r, privKey); err != nil {
         log.Fatal(err)
