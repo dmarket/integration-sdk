@@ -20,7 +20,7 @@ type Signature string
 func requestToSigString(r *http.Request) (string, error) {
     defer r.Body.Close()
     var (
-        singString string
+        stringToSign string
     )
     q := r.URL.Query()
     qkeys := make([]string, len(q))
@@ -31,7 +31,7 @@ func requestToSigString(r *http.Request) (string, error) {
     }
     sort.Strings(qkeys)
     for _, v := range qkeys {
-        singString = singString + strings.Join(q[v], "")
+        stringToSign = stringToSign + strings.Join(q[v], "")
     }
     if r.Body != nil {
         originalRBody := r.Body
@@ -40,7 +40,7 @@ func requestToSigString(r *http.Request) (string, error) {
             return "", err
         } else {
             r.Body = ioutil.NopCloser(bytes.NewBuffer(byteBodyString))
-            singString = singString + string(byteBodyString)
+            stringToSign = stringToSign + string(byteBodyString)
         }
     }
     //Required Headers
@@ -48,36 +48,36 @@ func requestToSigString(r *http.Request) (string, error) {
         if headerValue := r.Header.Get(headerName); headerValue == "" {
             return "", errors.New("missing " + headerName)
         } else {
-            singString = singString + headerValue
+            stringToSign = stringToSign + headerValue
         }
     }
     //Optional Headers
     for _, headerName := range []string{"X-API-USER-AUTH", "X-AUTH-PARTNER-ID"} {
         if headerValue := r.Header.Get(headerName); headerValue != "" {
-            singString = singString + headerValue
+            stringToSign = stringToSign + headerValue
         }
     }
-    return singString, nil
+    return stringToSign, nil
 }
 
 func Sign(r *http.Request, pk ed25519.PrivateKey) (Signature, error) {
-    if singString, err := requestToSigString(r); err != nil {
+    if stringToSign, err := requestToSigString(r); err != nil {
         return "", err
     } else {
-        signBytes := ed25519.Sign(pk, []byte(singString))
+        signBytes := ed25519.Sign(pk, []byte(stringToSign))
         signature := Signature(base64.StdEncoding.EncodeToString(signBytes))
         return signature, nil
     }
 }
 
 func Check(r *http.Request, signature Signature, pubk ed25519.PublicKey) (bool, error) {
-    if singString, err := requestToSigString(r); err != nil {
+    if stringToSign, err := requestToSigString(r); err != nil {
         return false, err
     } else {
         if signatureBytes, err := base64.StdEncoding.DecodeString(string(signature)); err != nil {
             return false, err
         }else{
-            ok := ed25519.Verify(pubk, []byte(singString), signatureBytes)
+            ok := ed25519.Verify(pubk, []byte(stringToSign), signatureBytes)
             return ok, nil
         }
     }
