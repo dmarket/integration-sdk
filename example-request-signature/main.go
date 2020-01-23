@@ -9,7 +9,6 @@ import (
     "io/ioutil"
     "log"
     "net/http"
-    "sort"
     "strconv"
     "strings"
     "time"
@@ -17,54 +16,39 @@ import (
 
 type Signature string
 
-func requestToSigString(r *http.Request) (string, error) {
-    defer r.Body.Close()
-    var (
-        stringToSign string
-    )
-    q := r.URL.Query()
-    qkeys := make([]string, len(q))
-    i := 0
-    for k := range q {
-        qkeys[i] = k
-        i++
-    }
-    sort.Strings(qkeys)
-    for _, v := range qkeys {
-        stringToSign = stringToSign + strings.Join(q[v], "")
-    }
+func requestToSigString(r *http.Request) ([]byte, error) {
+    var stringToSign bytes.Buffer
+    stringToSign.WriteString(r.URL.RawQuery)
     if r.Body != nil {
-        originalRBody := r.Body
-        defer originalRBody.Close()
-        if byteBodyString, err := ioutil.ReadAll(r.Body); err != nil {
-            return "", err
-        } else {
-            r.Body = ioutil.NopCloser(bytes.NewBuffer(byteBodyString))
-            stringToSign = stringToSign + string(byteBodyString)
+        byteBodyString, err := ioutil.ReadAll(r.Body)
+        if err != nil {
+            return nil, fmt.Errorf("read request body: %v", err)
         }
+        r.Body = ioutil.NopCloser(bytes.NewBuffer(byteBodyString))
+        stringToSign.Write(byteBodyString)
     }
     //Required Headers
     for _, headerName := range []string{"X-REQUEST-TIME"} {
         if headerValue := r.Header.Get(headerName); headerValue == "" {
-            return "", errors.New("missing " + headerName)
+            return nil, errors.New("missing " + headerName)
         } else {
-            stringToSign = stringToSign + headerValue
+            stringToSign.WriteString(headerValue)
         }
     }
     //Optional Headers
     for _, headerName := range []string{"X-API-USER-AUTH", "X-AUTH-PARTNER-ID"} {
         if headerValue := r.Header.Get(headerName); headerValue != "" {
-            stringToSign = stringToSign + headerValue
+            stringToSign.WriteString(headerValue)
         }
     }
-    return stringToSign, nil
+    return stringToSign.Bytes(), nil
 }
 
 func Sign(r *http.Request, pk ed25519.PrivateKey) (Signature, error) {
     if stringToSign, err := requestToSigString(r); err != nil {
         return "", err
     } else {
-        signBytes := ed25519.Sign(pk, []byte(stringToSign))
+        signBytes := ed25519.Sign(pk, stringToSign)
         signature := Signature(base64.StdEncoding.EncodeToString(signBytes))
         return signature, nil
     }
@@ -76,8 +60,8 @@ func Check(r *http.Request, signature Signature, pubk ed25519.PublicKey) (bool, 
     } else {
         if signatureBytes, err := base64.StdEncoding.DecodeString(string(signature)); err != nil {
             return false, err
-        }else{
-            ok := ed25519.Verify(pubk, []byte(stringToSign), signatureBytes)
+        } else {
+            ok := ed25519.Verify(pubk, stringToSign, signatureBytes)
             return ok, nil
         }
     }
